@@ -1,0 +1,27 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    environment:
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE=${CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE}
+    restart: unless-stopped
+
+  watchtower:
+    image: nickfedor/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_SCHEDULE=0 0 2 * * *  # 2 AM daily
+    command: open-webui
+    restart: unless-stopped
+    depends_on:
+      - open-webui
+
+volumes:
+  open-webui:

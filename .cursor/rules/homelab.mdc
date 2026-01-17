@@ -1,0 +1,120 @@
+---
+description: HomeLab project rules for local AI/LLM development environment on macOS
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# HomeLab Project Guidelines
+
+## Project Overview
+This is a **HomeLab** project that sets up a local AI/LLM development environment on macOS. It orchestrates multiple services to create a self-hosted LLM inference platform.
+
+## Architecture
+
+### Components
+1. **start.sh** - Main startup orchestration script
+2. **docker-compose.yml** - Container service definitions
+3. **com.homelab.start.plist** - macOS LaunchAgent for auto-start
+4. **logs/** - Service execution logs
+
+### Services
+- **LM Studio** - Local LLM inference server (port 1234)
+- **Open WebUI** - Web interface for LLM interaction (port 3000)
+- **Watchtower** - Automatic container updates (2 AM daily)
+- **caffeinate** - macOS keep-awake utility
+
+## Code Standards
+
+### Shell Scripts
+- Always use `#!/usr/bin/env bash` shebang
+- Enable strict mode: `set -euo pipefail`
+- Check command availability before use: `if command -v <cmd> >/dev/null 2>&1`
+- Check if process is already running before starting: `pgrep -x <process>`
+- Use emoji prefixes for status messages:
+  - ✅ Success/already running
+  - 🧠 Starting LM Studio
+  - 🐋 Docker Desktop operations
+  - 🐳 Container operations
+  - ⚠️  Warning/skipped
+  - ❌ Error/failure
+- Always provide meaningful error messages and exit codes
+
+### Docker Compose
+- Use `restart: unless-stopped` for services that should auto-restart
+- Define named volumes for persistent data
+- Use environment variables for secrets (via `.env` file)
+- Expose internal ports explicitly with host:container mapping
+
+### LaunchAgent (plist)
+- Set `RunAtLoad` to true for startup execution
+- Define `WorkingDirectory` to ensure correct context
+- Configure `StandardOutPath` and `StandardErrorPath` for logging
+- Include necessary PATH in `EnvironmentVariables` (homebrew, system bins)
+
+## File Locations
+- Launch agents: `~/Library/LaunchAgents/`
+- Logs: `./logs/`
+- Docker socket: `/var/run/docker.sock`
+
+## Common Operations
+
+### Managing the LaunchAgent
+```bash
+# Load (enable)
+launchctl load ~/Library/LaunchAgents/com.homelab.start.plist
+
+# Unload (disable)
+launchctl unload ~/Library/LaunchAgents/com.homelab.start.plist
+
+# Start manually
+launchctl start com.homelab.start
+
+# Check status
+launchctl list | grep homelab
+```
+
+### Docker Operations
+```bash
+# Start containers
+docker compose up -d
+
+# Stop containers
+docker compose down
+
+# View logs
+docker compose logs -f
+
+# Restart specific service
+docker compose restart open-webui
+```
+
+### LM Studio Operations
+```bash
+# Check server status
+lms status
+
+# Start server
+lms server start --port 1234 --bind 0.0.0.0 --cors
+
+# Stop server
+lms server stop
+```
+
+## Environment Variables
+Required in `.env` file:
+- `WEBUI_SECRET_KEY` - Secret key for Open WebUI authentication (generate with `openssl rand -hex 32`)
+- `CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE` - Streaming buffer configuration
+
+## Generating Secret Keys
+Always generate secure random keys for production:
+```bash
+# Generate a 32-byte hex key
+openssl rand -hex 32
+```
+
+## Debugging Tips
+1. Check logs in `./logs/start.log` and `./logs/start.error.log`
+2. Run `start.sh` manually to see real-time output
+3. Use `docker compose logs` for container-specific issues
+4. Check `lms status` for LM Studio server state
+5. Verify Docker Desktop status with `docker desktop status`
