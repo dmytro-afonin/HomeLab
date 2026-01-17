@@ -27,7 +27,7 @@ You need to install these yourself:
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/HomeLab.git
+git clone https://github.com/dmytro-afonin/HomeLab.git
 cd HomeLab
 
 # Configure
