@@ -39,9 +39,8 @@ else
   echo "   LM Studio is required for HomeLab."
   echo ""
   echo "   1. Install LM Studio: https://lmstudio.ai/"
-  echo "   2. Open LM Studio at least once (registers CLI)"
-  echo "   3. Enable CLI: Settings → Developer → Enable CLI"
-  echo "   4. Enable headless: Settings → Developer → Enable Local LLM Service"
+  echo "   2. Open LM Studio at least once (this registers the lms CLI)"
+  echo "   3. Enable headless: Settings → Developer → Enable Local LLM Service"
   echo ""
   exit 1
 fi

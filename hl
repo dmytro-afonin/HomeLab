@@ -51,9 +51,14 @@ show_help() {
   echo "    auto-start         Enable auto-start on login"
   echo "    auto-start --off   Disable auto-start on login"
   echo ""
+  echo "    webui <command>    WebUI configuration"
+  echo "        buffer-size [N]      Set stream buffer size (default: 10 MB)"
+  echo "        list-env             Show current configuration"
   echo "    ip                 Show local IP for network access"
   echo "    open               Open WebUI in browser"
   echo "    doctor [-v]        Check system requirements"
+  echo "    upgrade            Upgrade to latest version"
+  echo "    uninstall          Remove HomeLab completely"
   echo "    setup              Add 'hl' command to PATH"
   echo "    version            Show version info"
   echo "    help               Show this help"
@@ -100,6 +105,9 @@ cmd_start() {
   done
   
   run_doctor_check
+  
+  # Skip startup delay for manual runs
+  export HOMELAB_STARTUP_DELAY=0
   
   if ! $allow_sleep; then
     "$SCRIPT_DIR/scripts/services/ensure-caffeinate.sh"
@@ -255,6 +263,274 @@ cmd_setup() {
   "$SCRIPT_DIR/scripts/setup/add-to-path.sh"
 }
 
+# WebUI command dispatcher
+cmd_webui() {
+  local subcmd="${1:-}"
+  shift || true
+  
+  case "$subcmd" in
+    buffer-size|buffer)
+      cmd_webui_buffer_size "$@"
+      ;;
+    list-env|env)
+      cmd_webui_list_env
+      ;;
+    *)
+      echo "❌ Unknown webui command: $subcmd"
+      echo ""
+      echo "Usage: hl webui <command>"
+      echo ""
+      echo "Commands:"
+      echo "    buffer-size [N]    Set stream buffer size (default: 10 MB)"
+      echo "        -u, --unit     Size unit: mb, kb, b (default: mb)"
+      echo "    list-env           Show current WebUI configuration"
+      echo ""
+      exit 1
+      ;;
+  esac
+}
+
+# WebUI list-env - show current configuration
+cmd_webui_list_env() {
+  local env_file="$HOMELAB_HOME/.env"
+  
+  echo ""
+  echo "📋 WebUI Configuration"
+  echo "======================"
+  echo ""
+  echo "File: $env_file"
+  echo ""
+  
+  if [ ! -f "$env_file" ]; then
+    echo "❌ Configuration file not found"
+    exit 1
+  fi
+  
+  # Show non-empty, non-comment lines
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Skip empty lines and comments
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    
+    # Parse key=value
+    if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+      local key="${BASH_REMATCH[1]}"
+      local value="${BASH_REMATCH[2]}"
+      printf "%-45s = %s\n" "$key" "$value"
+    fi
+  done < "$env_file"
+  
+  echo ""
+}
+
+# WebUI buffer-size - set stream buffer size for fast models
+cmd_webui_buffer_size() {
+  local size=""
+  local unit="mb"
+  local env_file="$HOMELAB_HOME/.env"
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --unit=*|-u=*)
+        unit="${1#*=}"
+        shift
+        ;;
+      -u)
+        unit="$2"
+        shift 2
+        ;;
+      --unit)
+        unit="$2"
+        shift 2
+        ;;
+      -*)
+        echo "❌ Unknown option: $1"
+        echo "Usage: hl fix-streaming [SIZE] [--unit=mb|kb|b]"
+        exit 1
+        ;;
+      *)
+        size="$1"
+        shift
+        ;;
+    esac
+  done
+  
+  # Default size is 10
+  size="${size:-10}"
+  
+  # Normalize unit
+  case "$unit" in
+    mb|m|MB|M)
+      unit="MB"
+      bytes=$((size * 1024 * 1024))
+      ;;
+    kb|k|KB|K)
+      unit="KB"
+      bytes=$((size * 1024))
+      ;;
+    b|B|byte|bytes)
+      unit="bytes"
+      bytes=$size
+      ;;
+    *)
+      echo "❌ Unknown unit: $unit"
+      echo "   Supported: mb, kb, b (or m, k, b)"
+      exit 1
+      ;;
+  esac
+  
+  echo "🔧 Setting stream buffer size to $size $unit ($bytes bytes)..."
+  
+  if [ ! -f "$env_file" ]; then
+    echo "❌ Configuration file not found: $env_file"
+    exit 1
+  fi
+  
+  # Update or add the buffer size setting
+  if grep -q "CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE" "$env_file"; then
+    # Update existing
+    sed -i '' "s/CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE=.*/CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE=$bytes/" "$env_file"
+  else
+    # Add new
+    echo "CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE=$bytes" >> "$env_file"
+  fi
+  
+  log_info "config" "Buffer size set to $size $unit ($bytes bytes)"
+  
+  echo "✅ Buffer size set to $size $unit"
+  echo ""
+  echo "⚠️  Restart services to apply changes:"
+  echo ""
+  echo "   hl restart"
+  echo ""
+}
+
+# Uninstall HomeLab completely
+cmd_uninstall() {
+  echo ""
+  echo "🗑️  Uninstall HomeLab"
+  echo "===================="
+  echo ""
+  echo "This will remove:"
+  echo "  - LaunchAgent (auto-start)"
+  echo "  - Installation directory: $HOMELAB_HOME"
+  echo "  - Symlink: /usr/local/bin/hl (if exists)"
+  echo ""
+  
+  read -p "Are you sure? [y/N] " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo "Cancelled."
+    exit 0
+  fi
+  
+  echo ""
+  
+  # Stop services first
+  echo "Stopping services..."
+  "$SCRIPT_DIR/scripts/services/stop-all.sh" 2>/dev/null || true
+  
+  # Remove LaunchAgent
+  local plist_path="$HOME/Library/LaunchAgents/com.homelab.start.plist"
+  if [ -f "$plist_path" ]; then
+    echo "Removing LaunchAgent..."
+    launchctl unload "$plist_path" 2>/dev/null || true
+    rm -f "$plist_path"
+  fi
+  
+  # Remove symlink
+  if [ -L "/usr/local/bin/hl" ]; then
+    echo "Removing symlink (requires sudo)..."
+    sudo rm -f /usr/local/bin/hl
+  fi
+  
+  # Remove installation directory
+  if [ -d "$HOMELAB_HOME" ] && [ "$HOMELAB_HOME" != "$HOME" ]; then
+    echo "Removing $HOMELAB_HOME..."
+    rm -rf "$HOMELAB_HOME"
+  fi
+  
+  echo ""
+  echo "✅ HomeLab uninstalled"
+  echo ""
+  echo "Note: Docker containers and images were not removed."
+  echo "To remove them: docker compose down -v --rmi all"
+  echo ""
+}
+
+# Upgrade HomeLab to latest version
+cmd_upgrade() {
+  echo ""
+  echo "⬆️  Upgrading HomeLab"
+  echo "===================="
+  echo ""
+  
+  local repo_url="https://github.com/dmytro-afonin/HomeLab"
+  local temp_dir=$(mktemp -d)
+  
+  echo "Downloading latest version..."
+  if ! git clone --depth 1 "$repo_url" "$temp_dir" 2>/dev/null; then
+    echo "❌ Failed to download. Check your internet connection."
+    rm -rf "$temp_dir"
+    exit 1
+  fi
+  
+  local new_version=$(cat "$temp_dir/VERSION" 2>/dev/null | tr -d '\n')
+  local current_version="$HOMELAB_VERSION"
+  
+  echo "Current version: $current_version"
+  echo "Latest version:  $new_version"
+  echo ""
+  
+  if [ "$new_version" = "$current_version" ]; then
+    echo "✅ Already up to date!"
+    rm -rf "$temp_dir"
+    exit 0
+  fi
+  
+  echo "Updating files..."
+  
+  # Backup .env
+  local env_backup=""
+  if [ -f "$HOMELAB_HOME/.env" ]; then
+    env_backup=$(cat "$HOMELAB_HOME/.env")
+  fi
+  
+  # Copy new files
+  cp -r "$temp_dir"/scripts/* "$HOMELAB_HOME/scripts/"
+  cp "$temp_dir/hl" "$HOMELAB_HOME/"
+  cp "$temp_dir/start.sh" "$HOMELAB_HOME/"
+  cp "$temp_dir/VERSION" "$HOMELAB_HOME/"
+  cp "$temp_dir/docker-compose.yml" "$HOMELAB_HOME/"
+  cp "$temp_dir/.env.example" "$HOMELAB_HOME/"
+  cp "$temp_dir/com.homelab.start.plist.template" "$HOMELAB_HOME/"
+  cp "$temp_dir/install-launchagent.sh" "$HOMELAB_HOME/"
+  
+  # Restore .env
+  if [ -n "$env_backup" ]; then
+    echo "$env_backup" > "$HOMELAB_HOME/.env"
+  fi
+  
+  # Make executable
+  chmod +x "$HOMELAB_HOME/hl"
+  chmod +x "$HOMELAB_HOME/start.sh"
+  chmod +x "$HOMELAB_HOME"/scripts/**/*.sh 2>/dev/null || true
+  chmod +x "$HOMELAB_HOME"/scripts/*/*.sh 2>/dev/null || true
+  chmod +x "$HOMELAB_HOME/install-launchagent.sh"
+  
+  # Cleanup
+  rm -rf "$temp_dir"
+  
+  log_info "upgrade" "Upgraded from $current_version to $new_version"
+  
+  echo ""
+  echo "✅ Upgraded to v$new_version"
+  echo ""
+  echo "Restart services to apply changes:"
+  echo ""
+  echo "   hl restart"
+  echo ""
+}
+
 # Main
 main() {
   local cmd="${1:-help}"
@@ -288,8 +564,17 @@ main() {
     doctor|doc|check)
       cmd_doctor "$@"
       ;;
+    webui)
+      cmd_webui "$@"
+      ;;
     setup)
       cmd_setup
+      ;;
+    upgrade|update)
+      cmd_upgrade
+      ;;
+    uninstall|remove)
+      cmd_uninstall
       ;;
     version|v|-v|--version)
       show_version

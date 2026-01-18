@@ -23,7 +23,8 @@ if launchctl list | grep -q "com.homelab.start"; then
 fi
 
 # Generate plist from template
-sed "s|{{HOMELAB_PATH}}|$HOMELAB_PATH|g" \
+sed -e "s|{{HOMELAB_PATH}}|$HOMELAB_PATH|g" \
+    -e "s|{{HOME}}|$HOME|g" \
     "$HOMELAB_PATH/$PLIST_NAME.template" > "$PLIST_PATH"
 
 log_info "$SERVICE" "Created $PLIST_PATH"

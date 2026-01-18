@@ -16,7 +16,9 @@ A streamlined setup for running **LM Studio** (with MLX acceleration) and **Open
 ```
 HomeLab/
 ├── VERSION                         # Semantic version
-├── start.sh                        # Main entry point
+├── hl                              # CLI entry point
+├── start.sh                        # LaunchAgent entry point
+├── install.sh                      # User installer
 ├── install-launchagent.sh          # LaunchAgent installer
 ├── docker-compose.yml              # Container definitions
 ├── scripts/
@@ -35,13 +37,13 @@ HomeLab/
 │   │   ├── stats.sh
 │   │   └── clear.sh
 │   └── utils/
+│       ├── doctor.sh
 │       ├── health-check.sh
 │       ├── local-ip.sh
 │       └── version.sh
 ├── .cursor/
 │   ├── commands/
 │   │   ├── services/               # Service commands
-│   │   ├── logs/                   # Log commands
 │   │   ├── docker/                 # Docker commands
 │   │   ├── setup/                  # Setup commands
 │   │   └── utils/                  # Utility commands
@@ -80,13 +82,15 @@ HomeLab/
 SQLite database at `logs/homelab.db`:
 - Auto-created on first log
 - Includes timestamp, level, service, message, version
-- Query with `scripts/logs/view.sh`
+- Query with `hl logs`
 
 ```bash
-./scripts/logs/view.sh -n 100        # Last 100
-./scripts/logs/view.sh -s lmstudio   # By service
-./scripts/logs/view.sh -l ERROR      # By level
-./scripts/logs/tail.sh               # Live tail
+hl logs -n 100              # Last 100
+hl logs -s lmstudio         # By service
+hl logs -l ERROR            # By level
+hl logs --tail              # Live tail
+hl logs --stats             # Statistics
+hl logs --clear             # Clear logs
 ```
 
 ## Services
@@ -102,20 +106,37 @@ SQLite database at `logs/homelab.db`:
 The `hl` command is the main entry point:
 
 ```bash
+# Service Management
 hl start                    # Start all services
+hl start --allow-sleep      # Start without caffeinate
 hl stop                     # Stop all services
 hl restart                  # Restart all
 hl status                   # Health check
 
+# Logs
 hl logs                     # View logs
 hl logs --tail              # Follow live
 hl logs -s lmstudio         # Filter by service
 hl logs -l ERROR            # Filter by level
+hl logs --stats             # Log statistics
+hl logs --clear             # Clear logs
 
-hl install                  # Install LaunchAgent
-hl uninstall                # Remove LaunchAgent
+# Auto-start
+hl auto-start               # Enable auto-start on login
+hl auto-start --off         # Disable auto-start
+
+# WebUI Configuration
+hl webui buffer-size 50     # Set buffer size (MB)
+hl webui list-env           # Show current config
+
+# Utilities
 hl ip                       # Show local IP
 hl open                     # Open WebUI in browser
-hl setup                    # Add to PATH
+hl doctor -v                # System diagnostics
+
+# Maintenance
+hl upgrade                  # Upgrade to latest version
+hl uninstall                # Remove HomeLab completely
 hl version                  # Show version
+hl help                     # Show all commands
 ```

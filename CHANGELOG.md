@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-01-18
+
+### Added
+
+- **`hl upgrade`** — upgrade to latest version from GitHub
+- **`hl uninstall`** — completely remove HomeLab (LaunchAgent, ~/.homelab, symlink)
+- **`hl webui buffer-size [N]`** — set stream buffer size with unit support (MB/KB/B)
+- **`hl webui list-env`** — view current WebUI configuration
+- **LM Studio CLI path** — LaunchAgent now includes `~/.lmstudio/bin` in PATH
+- **LM Studio app auto-open** — opens LM Studio if not running during startup
+
+### Changed
+
+- Renamed `hl install` → `hl auto-start` (clearer naming)
+- Renamed `hl uninstall` (LaunchAgent) → `hl auto-start --off`
+- Removed manual Configuration section from README (use CLI instead)
+- Improved README "Before You Install" section
+- Detailed Open WebUI → LM Studio connection instructions
+
+### Fixed
+
+- LaunchAgent PATH now includes `~/.lmstudio/bin` so `lms` command is found on login
+- LM Studio startup waits up to 60s with retry loop
+- Initial 10s delay for LaunchAgent to let login items start first
+
 ## [1.1.0] - 2026-01-18
 
 ### Added
@@ -52,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `.env` configuration with `WEBUI_SECRET_KEY` and chunk size settings
 - Cursor IDE commands and rules
 
-[Unreleased]: https://github.com/dmytro-afonin/HomeLab/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/dmytro-afonin/HomeLab/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/dmytro-afonin/HomeLab/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dmytro-afonin/HomeLab/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dmytro-afonin/HomeLab/releases/tag/v1.0.0
