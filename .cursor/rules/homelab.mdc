@@ -7,92 +7,115 @@ alwaysApply: true
 # HomeLab Project Guidelines
 
 ## Project Overview
-A streamlined setup for running **LM Studio** (with MLX acceleration) and **Open WebUI** on macOS. Designed for Apple Silicon Macs to leverage native ML performance.
+A streamlined setup for running **LM Studio** (with MLX acceleration) and **Open WebUI** on macOS. Designed for Apple Silicon Macs.
 
-## Architecture
+**Current Version**: See `VERSION` file
 
-### Why This Stack
-- **LM Studio** — Uses Apple's MLX framework for native M1/M2/M3/M4 acceleration
-- **Open WebUI** — ChatGPT-like interface, runs in Docker
-- **Watchtower** — Auto-updates containers daily
-- **caffeinate** — Prevents Mac from sleeping during inference
+## Project Structure
 
-### Components
-| File | Purpose |
-|------|---------|
-| `start.sh` | Main orchestration script |
-| `docker-compose.yml` | Container definitions |
-| `install-launchagent.sh` | Installs auto-start |
-| `com.homelab.start.plist.template` | LaunchAgent template (paths are placeholders) |
+```
+HomeLab/
+├── VERSION                         # Semantic version
+├── start.sh                        # Main entry point
+├── install-launchagent.sh          # LaunchAgent installer
+├── docker-compose.yml              # Container definitions
+├── scripts/
+│   ├── lib/
+│   │   └── log.sh                  # Logging library (versioned)
+│   ├── services/
+│   │   ├── ensure-caffeinate.sh
+│   │   ├── ensure-lmstudio.sh
+│   │   ├── ensure-docker-desktop.sh
+│   │   ├── ensure-containers.sh
+│   │   ├── stop-*.sh
+│   │   └── stop-all.sh
+│   ├── logs/
+│   │   ├── view.sh
+│   │   ├── tail.sh
+│   │   ├── stats.sh
+│   │   └── clear.sh
+│   └── utils/
+│       ├── health-check.sh
+│       ├── local-ip.sh
+│       └── version.sh
+├── .cursor/
+│   ├── commands/
+│   │   ├── services/               # Service commands
+│   │   ├── logs/                   # Log commands
+│   │   ├── docker/                 # Docker commands
+│   │   ├── setup/                  # Setup commands
+│   │   └── utils/                  # Utility commands
+│   └── rules/
+└── logs/                           # Runtime logs (gitignored)
+    └── homelab.db                  # SQLite log database
+```
 
-### Services
-| Service | Port | Notes |
-|---------|------|-------|
-| LM Studio | 1234 | Native macOS, MLX/GGUF models |
-| Open WebUI | 3000 | Docker container |
-| Watchtower | — | Updates at 2 AM daily |
+## Versioning
+
+- **Project version**: `VERSION` file (semantic versioning)
+- **Library version**: `HOMELAB_LIB_VERSION` in `scripts/lib/log.sh`
+- Logs include version for debugging
 
 ## Code Standards
 
 ### Shell Scripts
 - Shebang: `#!/usr/bin/env bash`
-- Strict mode: `set -euo pipefail`
-- Check command exists: `if command -v <cmd> >/dev/null 2>&1`
-- Check process running: `pgrep -x <process>`
-- Emoji status prefixes:
-  - ✅ Success
-  - 🧠 LM Studio
-  - 🐋 Docker Desktop
-  - 🐳 Containers
-  - ⚠️ Warning
-  - ❌ Error
+- Source lib: `source "$SCRIPT_DIR/../lib/log.sh"`
+- Use logging functions: `log_info`, `log_warn`, `log_error`, `log_start`
+- Emoji prefixes: ✅ ⚠️ ❌ 🚀 🧠 🐋 🐳
 
-### Docker Compose
-- Use `restart: unless-stopped`
-- Named volumes for persistence
-- Environment variables via `.env`
+### Adding New Scripts
+1. Create in appropriate `scripts/` subdirectory
+2. Source the logging library
+3. Make executable: `chmod +x`
+4. Create matching Cursor command in `.cursor/commands/`
 
-### LaunchAgent
-- Use template with `{{HOMELAB_PATH}}` placeholder
-- Never commit files with hardcoded local paths
-- Install script generates actual plist from template
+### Cursor Commands
+- Organized by category in subdirectories
+- Reference scripts only, no inline logic
+- Short, descriptive names
 
-## Environment Variables
-Required in `.env`:
-- `WEBUI_SECRET_KEY` — Generate with `openssl rand -hex 32`
-- `CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE` — Increase for fast models (default: 10000)
+## Logging
 
-## Common Commands
+SQLite database at `logs/homelab.db`:
+- Auto-created on first log
+- Includes timestamp, level, service, message, version
+- Query with `scripts/logs/view.sh`
 
-### Quickstart
 ```bash
-./start.sh                    # Start all services
-./install-launchagent.sh      # Enable auto-start
+./scripts/logs/view.sh -n 100        # Last 100
+./scripts/logs/view.sh -s lmstudio   # By service
+./scripts/logs/view.sh -l ERROR      # By level
+./scripts/logs/tail.sh               # Live tail
 ```
 
-### Service Management
+## Services
+
+| Service | Port | Notes |
+|---------|------|-------|
+| LM Studio | 1234 | Native macOS, MLX/GGUF |
+| Open WebUI | 3000 | Docker container |
+| Watchtower | — | Updates at 2 AM daily |
+
+## CLI (`hl`)
+
+The `hl` command is the main entry point:
+
 ```bash
-lms status                    # LM Studio status
-lms server start --port 1234  # Start LM Studio
-docker compose up -d          # Start containers
-docker compose down           # Stop containers
-docker compose logs -f        # View logs
+hl start                    # Start all services
+hl stop                     # Stop all services
+hl restart                  # Restart all
+hl status                   # Health check
+
+hl logs                     # View logs
+hl logs --tail              # Follow live
+hl logs -s lmstudio         # Filter by service
+hl logs -l ERROR            # Filter by level
+
+hl install                  # Install LaunchAgent
+hl uninstall                # Remove LaunchAgent
+hl ip                       # Show local IP
+hl open                     # Open WebUI in browser
+hl setup                    # Add to PATH
+hl version                  # Show version
 ```
-
-### LaunchAgent
-```bash
-launchctl list | grep homelab                              # Check status
-launchctl unload ~/Library/LaunchAgents/com.homelab.start.plist  # Disable
-```
-
-## Cursor IDE Commands
-- `quickstart` — Full setup
-- `ensure-*` — Idempotent service startup
-- `health-check` — Status of all services
-- `generate-secret-key` — Create WEBUI_SECRET_KEY
-
-## Debugging
-1. Check `logs/start.log` and `logs/start.error.log`
-2. Run `./start.sh` manually for real-time output
-3. Use `docker compose logs` for container issues
-4. Verify LM Studio: `lms status`

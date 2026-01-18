@@ -1,81 +1,125 @@
 # HomeLab
 
-A streamlined way to run [Open WebUI](https://openwebui.com/) with [LM Studio](https://lmstudio.ai/) on macOS.
+A CLI tool to run [Open WebUI](https://openwebui.com/) with [LM Studio](https://lmstudio.ai/) on macOS.
 
 ## Why This Setup?
 
 ### LM Studio + MLX = Native Apple Silicon Performance
 
-[LM Studio](https://lmstudio.ai/) uses **MLX** — Apple's machine learning framework optimized for Apple Silicon. This means:
+[LM Studio](https://lmstudio.ai/) uses **MLX** — Apple's machine learning framework optimized for Apple Silicon:
 
-- **Native M1/M2/M3/M4 acceleration** — runs models directly on the Neural Engine and GPU
-- **Unified memory architecture** — no VRAM limits, use all your RAM for larger models
-- **Energy efficient** — better performance per watt than CUDA alternatives
-- **No Docker overhead for inference** — LM Studio runs natively on macOS
+- **Native M1/M2/M3/M4 acceleration** — runs on Neural Engine and GPU
+- **Unified memory** — no VRAM limits, use all your RAM
+- **Energy efficient** — better performance per watt
+- **No Docker overhead for inference** — LM Studio runs natively
 
 ### Open WebUI = Beautiful Chat Interface
 
-[Open WebUI](https://openwebui.com/) provides a polished ChatGPT-like interface that connects to your local LM Studio server.
-
-### This Script = Zero Friction
-
-One command starts everything. Auto-start on login. Auto-updates. No manual steps.
-
-## What This Does
-
-The `start.sh` script:
-
-1. **Keeps your Mac awake** — runs `caffeinate` to prevent sleep during inference
-2. **Starts LM Studio server** — launches the headless LLM server if not already running
-3. **Starts Docker Desktop** — ensures Docker is running (handles paused/stopped states)
-4. **Runs Open WebUI** — starts the web interface container via `docker compose`
+[Open WebUI](https://openwebui.com/) provides a polished ChatGPT-like interface connecting to your local LM Studio.
 
 ## Prerequisites
 
-Install these first:
-
 1. **macOS** (Sonoma/Sequoia on Apple Silicon recommended)
-2. **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** — installed and working
-3. **[LM Studio](https://lmstudio.ai/)** — with:
-   - CLI enabled (LM Studio → Settings → Enable CLI)
-   - At least one model downloaded (MLX or GGUF format)
+2. **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**
+3. **[LM Studio](https://lmstudio.ai/)** — see setup below
 
-## Quick Start
+### LM Studio Setup (Required)
+
+1. **Install** [LM Studio](https://lmstudio.ai/)
+2. **Open LM Studio at least once** — this registers the `lms` CLI command
+3. **Enable CLI**: Settings → Developer → **Enable CLI**
+4. **Enable headless mode**: Settings → Developer → **Enable Local LLM Service**
+   - This allows the LLM server to run without keeping LM Studio window open
+5. **Download a model** (e.g., Llama, Mistral, Qwen)
+
+## Installation
+
+### Quick Install (Recommended)
 
 ```bash
-# Clone
+curl -fsSL https://raw.githubusercontent.com/dmytro-afonin/HomeLab/main/install.sh | bash
+```
+
+Or clone and install:
+
+```bash
 git clone https://github.com/dmytro-afonin/HomeLab.git
 cd HomeLab
-
-# Configure
-cp .env.example .env
-openssl rand -hex 32  # Copy output to WEBUI_SECRET_KEY in .env
-
-# Run
-./start.sh
+./install.sh
 ```
 
-Open http://localhost:3000 and create your admin account.
+This installs HomeLab to `~/.homelab/` and adds the `hl` command to your PATH.
 
-### Auto-Start on Login (Optional)
+### What Gets Installed
+
+```
+~/.homelab/
+├── hl                     # CLI entry point
+├── VERSION                # Version info
+├── docker-compose.yml     # Container config
+├── .env                   # Your configuration
+├── scripts/               # All scripts
+└── logs/                  # SQLite log database
+```
+
+## Usage
 
 ```bash
-./install-launchagent.sh
+hl start          # Start all services
+hl stop           # Stop all services
+hl status         # Check status
+hl logs           # View logs
+hl help           # Show all commands
 ```
 
-This generates a LaunchAgent with your local paths and loads it.
+### Full Command Reference
+
+```
+hl <command> [options]
+
+COMMANDS
+    start [options]    Start all services
+        --allow-sleep, -as       Don't prevent Mac from sleeping
+        --allow-sleep-force, -asf  Also kill running caffeinate
+    stop               Stop all services
+    restart [options]  Restart all services
+    status             Show status of all services
+
+    logs [options]     View logs
+        -n, --limit N      Show last N entries (default: 50)
+        -s, --service NAME Filter by service
+        -l, --level LEVEL  Filter by level (INFO, WARN, ERROR)
+        --tail             Follow logs in real-time
+        --stats            Show log statistics
+        --clear            Clear all logs
+
+    auto-start         Enable auto-start on login
+    auto-start --off   Disable auto-start on login
+
+    ip                 Show local IP for network access
+    open               Open WebUI in browser
+    doctor [-v]        Check system requirements (-v for verbose)
+    version            Show version info
+    help               Show this help
+```
+
+### Examples
+
+```bash
+hl start                      # Start everything
+hl start --allow-sleep        # Start without caffeinate
+hl status                     # Check all services
+hl logs -n 100                # Last 100 log entries
+hl logs --tail                # Follow logs live
+hl auto-start                 # Enable auto-start on login
+```
 
 ## Configuration
 
-### Environment Variables
-
-Create `.env` from `.env.example`:
+Edit `~/.homelab/.env`:
 
 ```env
-# Generate with: openssl rand -hex 32
-WEBUI_SECRET_KEY=your-secret-key-here
-
-# Increase for fast models to avoid "chunk too big" error
+WEBUI_SECRET_KEY=<auto-generated>
 CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE=10000
 ```
 
@@ -83,78 +127,81 @@ CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE=10000
 
 1. Click **LM Studio menu bar icon** → **Copy LLM Server Base URL**
 2. In Open WebUI: **Admin Panel** → **Settings** → **Connections**
-3. Add OpenAI API → Paste the copied URL
+3. Add OpenAI API → Paste the URL
 
-> **Note**: Use the local-network address from LM Studio (not `localhost`) so Docker can reach it.
+## Auto-Start on Login
 
-### Update Schedule
-
-Watchtower updates Open WebUI daily at 2 AM. Change in `docker-compose.yml`:
-
-```yaml
-WATCHTOWER_SCHEDULE=0 0 2 * * *  # cron format
+```bash
+hl auto-start          # Enable auto-start
+hl auto-start --off    # Disable auto-start
 ```
 
-### Remote Access (Optional)
+## File Locations
 
-To access Open WebUI outside your home network, use [ngrok](https://ngrok.com/):
+| Path | Description |
+|------|-------------|
+| `~/.homelab/` | Installation directory |
+| `~/.homelab/.env` | Configuration |
+| `~/.homelab/logs/homelab.db` | SQLite logs |
+| `~/Library/LaunchAgents/com.homelab.start.plist` | LaunchAgent (if installed) |
 
-1. Install the [ngrok Docker extension](https://hub.docker.com/extensions/ngrok/ngrok-docker-extension) in Docker Desktop
-2. Create a tunnel to `localhost:3000`
+## Development
 
-> **Security note**: Enable authentication in Open WebUI before exposing externally.
+Clone the repo for development:
 
-## What's Included
+```bash
+git clone https://github.com/dmytro-afonin/HomeLab.git
+cd HomeLab
 
-| File | Purpose |
-|------|---------|
-| `start.sh` | Main startup script |
-| `docker-compose.yml` | Open WebUI + Watchtower containers |
-| `install-launchagent.sh` | Installs macOS LaunchAgent |
-| `com.homelab.start.plist.template` | LaunchAgent template |
-| `.env.example` | Environment template |
-| `.cursor/commands/` | Cursor IDE commands |
-| `.cursor/rules/` | Cursor IDE rules |
+# Run directly from repo
+./hl start
 
-### Cursor IDE Integration
+# Or install to ~/.homelab
+./install.sh
+```
 
-This repo includes Cursor commands and rules to help with setup and troubleshooting:
+## Uninstall
 
-- **`quickstart`** — full setup in one command
-- **Workflow commands**: `ensure-caffeinate`, `ensure-lmstudio`, `ensure-containers`
-- **Service commands**: start/stop/status for Docker, LM Studio, caffeinate
-- **Utility commands**: `health-check`, `view-logs`, `generate-secret-key`
+```bash
+# Remove LaunchAgent
+hl uninstall
 
-Access via **Cmd+Shift+P** → search for command name.
+# Remove installation
+rm -rf ~/.homelab
+
+# Remove symlink (if installed)
+sudo rm /usr/local/bin/hl
+```
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
 | Open WebUI | 3000 | Chat interface |
-| LM Studio | 1234 | LLM inference (MLX/GGUF, native macOS) |
-| Watchtower | — | Auto-updates containers |
+| LM Studio | 1234 | LLM inference (MLX) |
+| Watchtower | — | Auto-updates at 2 AM |
 
 ## Troubleshooting
 
-**"Chunk too big" error** — Increase `CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE` in `.env`
-
-**LM Studio not starting** — Enable CLI in LM Studio → Settings
-
-**Can't connect to LM Studio** — Copy the URL from LM Studio menu bar (not `localhost`)
-
-**Check logs:**
 ```bash
-cat logs/start.log logs/start.error.log  # startup logs
-docker compose logs -f                    # container logs
+hl doctor -v                  # Full system diagnostics
+hl status                     # Check all services
+hl logs -l ERROR              # View errors
 ```
+
+**"lms: command not found"** — Open LM Studio app at least once to register the CLI. Then enable CLI in Settings → Developer.
+
+**"Chunk too big" error** — Increase `CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE` in `~/.homelab/.env`
+
+**Can't connect to LM Studio** — Copy URL from LM Studio menu bar (not `localhost`)
+
+**LM Studio server won't start headless** — Enable "Local LLM Service" in LM Studio Settings → Developer
 
 ## Links
 
-- [LM Studio](https://lmstudio.ai/) — Local LLM with MLX support
+- [LM Studio](https://lmstudio.ai/) — Local LLM with MLX
 - [Open WebUI](https://openwebui.com/) / [Docs](https://docs.openwebui.com/)
 - [MLX](https://github.com/ml-explore/mlx) — Apple's ML framework
-- [ngrok Docker Extension](https://hub.docker.com/extensions/ngrok/ngrok-docker-extension)
 
 ## License
 

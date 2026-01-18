@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+# HomeLab CLI
+# Usage: hl <command> [options]
+
+set -euo pipefail
+
+# Resolve symlinks to get actual script location
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Set HOMELAB_HOME if not already set
+export HOMELAB_HOME="${HOMELAB_HOME:-$SCRIPT_DIR}"
+
+source "$SCRIPT_DIR/scripts/lib/log.sh"
+
+# Run doctor check (non-verbose by default)
+# This ensures all dependencies are available before running commands
+run_doctor_check() {
+  "$SCRIPT_DIR/scripts/utils/doctor.sh" || exit 1
+}
+
+# Show help
+show_help() {
+  echo ""
+  echo "HomeLab CLI v$HOMELAB_VERSION"
+  echo ""
+  echo "USAGE"
+  echo "    hl <command> [options]"
+  echo ""
+  echo "COMMANDS"
+  echo "    start [options]    Start all services"
+  echo "        --allow-sleep, -as       Don't prevent Mac from sleeping"
+  echo "        --allow-sleep-force, -asf  Also kill running caffeinate"
+  echo "    stop               Stop all services"
+  echo "    restart [options]  Restart all services"
+  echo "    status             Show status of all services"
+  echo ""
+  echo "    logs [options]     View logs"
+  echo "        -n, --limit N      Show last N entries (default: 50)"
+  echo "        -s, --service NAME Filter by service"
+  echo "        -l, --level LEVEL  Filter by level (INFO, WARN, ERROR)"
+  echo "        --tail             Follow logs in real-time"
+  echo "        --stats            Show log statistics"
+  echo "        --clear            Clear all logs"
+  echo ""
+  echo "    auto-start         Enable auto-start on login"
+  echo "    auto-start --off   Disable auto-start on login"
+  echo ""
+  echo "    ip                 Show local IP for network access"
+  echo "    open               Open WebUI in browser"
+  echo "    doctor [-v]        Check system requirements"
+  echo "    setup              Add 'hl' command to PATH"
+  echo "    version            Show version info"
+  echo "    help               Show this help"
+  echo ""
+  echo "EXAMPLES"
+  echo "    hl start                      # Start everything"
+  echo "    hl start --allow-sleep        # Start without caffeinate"
+  echo "    hl status                     # Check all services"
+  echo "    hl logs -n 100                # Last 100 log entries"
+  echo "    hl logs --tail                # Follow logs live"
+  echo "    hl doctor -v                  # Full system diagnostics"
+  echo "    hl auto-start                 # Enable auto-start on login"
+  echo ""
+}
+
+# Show version
+show_version() {
+  echo "HomeLab v$HOMELAB_VERSION"
+  echo "Library v$HOMELAB_LIB_VERSION"
+}
+
+# Start all services
+cmd_start() {
+  local allow_sleep=false
+  local force_sleep=false
+  
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --allow-sleep|-as)
+        allow_sleep=true
+        shift
+        ;;
+      --allow-sleep-force|-asf)
+        allow_sleep=true
+        force_sleep=true
+        shift
+        ;;
+      *)
+        echo "❌ Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+  
+  run_doctor_check
+  
+  if ! $allow_sleep; then
+    "$SCRIPT_DIR/scripts/services/ensure-caffeinate.sh"
+  else
+    if $force_sleep; then
+      # Kill any running caffeinate processes
+      if pgrep -x caffeinate >/dev/null 2>&1; then
+        echo "💤 Stopping caffeinate..."
+        pkill -x caffeinate 2>/dev/null || true
+        log_info "caffeinate" "Stopped (force sleep mode)"
+        echo "✅ caffeinate stopped"
+      else
+        echo "💤 caffeinate not running"
+      fi
+    else
+      echo "💤 Skipping caffeinate (Mac may sleep)"
+    fi
+  fi
+  
+  "$SCRIPT_DIR/scripts/services/ensure-lmstudio.sh"
+  "$SCRIPT_DIR/scripts/services/ensure-containers.sh"
+  echo ""
+  echo "🎉 All services started!"
+}
+
+# Stop all services
+cmd_stop() {
+  run_doctor_check
+  "$SCRIPT_DIR/scripts/services/stop-all.sh"
+}
+
+# Restart services
+cmd_restart() {
+  local args=("$@")
+  cmd_stop
+  echo ""
+  cmd_start "${args[@]}"
+}
+
+# Show status
+cmd_status() {
+  run_doctor_check
+  "$SCRIPT_DIR/scripts/utils/health-check.sh"
+}
+
+# Logs command
+cmd_logs() {
+  local args=()
+  local tail_mode=false
+  local stats_mode=false
+  local clear_mode=false
+  
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --tail|-f)
+        tail_mode=true
+        shift
+        ;;
+      --stats)
+        stats_mode=true
+        shift
+        ;;
+      --clear)
+        clear_mode=true
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  
+  if $clear_mode; then
+    "$SCRIPT_DIR/scripts/logs/clear.sh"
+  elif $stats_mode; then
+    "$SCRIPT_DIR/scripts/logs/stats.sh"
+  elif $tail_mode; then
+    "$SCRIPT_DIR/scripts/logs/tail.sh"
+  else
+    "$SCRIPT_DIR/scripts/logs/view.sh" "${args[@]}"
+  fi
+}
+
+# Auto-start (LaunchAgent)
+cmd_autostart() {
+  local disable=false
+  
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --off|--disable)
+        disable=true
+        shift
+        ;;
+      *)
+        echo "❌ Unknown option: $1"
+        exit 1
+        ;;
+    esac
+  done
+  
+  local plist_path="$HOME/Library/LaunchAgents/com.homelab.start.plist"
+  
+  if $disable; then
+    if [ -f "$plist_path" ]; then
+      echo "🔄 Disabling auto-start..."
+      launchctl unload "$plist_path" 2>/dev/null || true
+      rm -f "$plist_path"
+      log_info "autostart" "Auto-start disabled"
+      echo "✅ Auto-start disabled"
+    else
+      echo "⚠️  Auto-start is not enabled"
+    fi
+  else
+    run_doctor_check
+    "$SCRIPT_DIR/install-launchagent.sh"
+  fi
+}
+
+# Show local IP
+cmd_ip() {
+  "$SCRIPT_DIR/scripts/utils/local-ip.sh"
+}
+
+# Open WebUI
+cmd_open() {
+  echo "🌐 Opening WebUI..."
+  open "http://localhost:3000"
+}
+
+# Doctor - check system requirements
+cmd_doctor() {
+  local verbose=""
+  
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --verbose|-v)
+        verbose="--verbose"
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  
+  "$SCRIPT_DIR/scripts/utils/doctor.sh" $verbose
+}
+
+# Setup - add to PATH
+cmd_setup() {
+  run_doctor_check
+  "$SCRIPT_DIR/scripts/setup/add-to-path.sh"
+}
+
+# Main
+main() {
+  local cmd="${1:-help}"
+  shift || true
+  
+  case "$cmd" in
+    start)
+      cmd_start "$@"
+      ;;
+    stop)
+      cmd_stop
+      ;;
+    restart)
+      cmd_restart "$@"
+      ;;
+    status|st)
+      cmd_status
+      ;;
+    logs|log|l)
+      cmd_logs "$@"
+      ;;
+    auto-start|autostart)
+      cmd_autostart "$@"
+      ;;
+    ip)
+      cmd_ip
+      ;;
+    open|o)
+      cmd_open
+      ;;
+    doctor|doc|check)
+      cmd_doctor "$@"
+      ;;
+    setup)
+      cmd_setup
+      ;;
+    version|v|-v|--version)
+      show_version
+      ;;
+    help|h|-h|--help)
+      show_help
+      ;;
+    *)
+      echo "❌ Unknown command: $cmd"
+      echo ""
+      show_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
